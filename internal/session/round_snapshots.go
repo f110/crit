@@ -2,14 +2,23 @@ package session
 
 import "time"
 
+// roundSnapshotsSupported reports whether a session Mode participates in the
+// per-round snapshot timeline. Files and git modes both re-read file content
+// into f.Content on every round-complete, so capturing R(N) is free. Live and
+// preview modes anchor to DOM pins, not file content, and are excluded.
+func roundSnapshotsSupported(mode string) bool {
+	return mode == "files" || mode == "git"
+}
+
 // captureRoundSnapshot records the current Content/Status of every loaded,
-// non-deleted file under the given round number. Files-mode only; in git mode
-// the function is a no-op (snapshots are not part of the git-mode contract).
+// non-deleted file under the given round number. Enabled for files and git
+// modes (both re-read file content into f.Content each round, so the bytes are
+// already in memory). No-op for other modes (live/preview).
 //
 // Lock contract: caller MUST hold s.mu for writing OR be the only goroutine
 // that could observe s.RoundSnapshots (constructor pre-SetSession).
 func (s *Session) captureRoundSnapshot(round int) {
-	if s.Mode != "files" {
+	if !roundSnapshotsSupported(s.Mode) {
 		return
 	}
 	if round < 1 {

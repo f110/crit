@@ -42,6 +42,11 @@ func (s *Session) FilterFilesAtRound(files []SessionFileInfo, round int) []Sessi
 // Caller must hold RLock when concurrent mutation is possible.
 func (s *Session) AvailableRounds() []int { return s.availableRounds() }
 
+// RoundsSupported reports whether this session participates in the per-round
+// snapshot timeline (files and git modes). HTTP handlers use it to gate the
+// round-aware endpoints (?round=N, /api/rounds).
+func (s *Session) RoundsSupported() bool { return roundSnapshotsSupported(s.Mode) }
+
 // RoundSnapshotForFile returns the snapshot for path at round.
 // Caller must hold RLock when concurrent mutation is possible.
 func (s *Session) RoundSnapshotForFile(path string, round int) (RoundSnapshot, bool) {

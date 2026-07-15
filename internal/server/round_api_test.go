@@ -53,6 +53,57 @@ func TestHandleFileDiff_Round_FilesMode(t *testing.T) {
 	}
 }
 
+// TestHandleFileDiff_FromRound_ArbitraryRange verifies the optional ?from=M
+// param computes a non-consecutive inter-round diff (#M -> #N) instead of the
+// default (#N-1 -> #N).
+func TestHandleFileDiff_FromRound_ArbitraryRange(t *testing.T) {
+	s, sess := newRoundsTestServer(t)
+	// Add R3 so we can diff #1 -> #3 across a skipped round.
+	r3 := "line1\nlineTWO\nline3\nline4\nline5\n"
+	sess.Files[0].Content = r3
+	sess.RoundSnapshots["test.md"][3] = RoundSnapshot{Content: r3, Status: "modified"}
+	sess.ReviewRound = 3
+
+	req := httptest.NewRequest("GET", "/api/file/diff?path=test.md&round=3&from=1", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	// previous_content must be R1 (the ?from base), not R2 (round-1).
+	if got, _ := resp["previous_content"].(string); got != "line1\nline2\nline3\n" {
+		t.Fatalf("from=1 previous_content should be R1, got %q", got)
+	}
+	hunks, _ := resp["hunks"].([]any)
+	if len(hunks) == 0 {
+		t.Fatalf("expected diff hunks for #1->#3, got none")
+	}
+}
+
+func TestHandleFileDiff_FromRound_Invalid(t *testing.T) {
+	s, sess := newRoundsTestServer(t)
+	sess.RoundSnapshots["test.md"][3] = RoundSnapshot{Content: "x", Status: "modified"}
+	sess.ReviewRound = 3
+	cases := []string{
+		"/api/file/diff?path=test.md&round=3&from=abc", // non-numeric
+		"/api/file/diff?path=test.md&round=3&from=0",   // < 1
+		"/api/file/diff?path=test.md&round=2&from=2",   // from == round (not earlier)
+		"/api/file/diff?path=test.md&round=2&from=3",   // from > round
+	}
+	for _, url := range cases {
+		req := httptest.NewRequest("GET", url, nil)
+		w := httptest.NewRecorder()
+		s.ServeHTTP(w, req)
+		if w.Code != 400 {
+			t.Errorf("%s: status=%d, want 400 (body=%s)", url, w.Code, w.Body.String())
+		}
+	}
+}
+
 func TestHandleFileDiff_Round_InvalidParam(t *testing.T) {
 	s, _ := newRoundsTestServer(t)
 	req := httptest.NewRequest("GET", "/api/file/diff?path=test.md&round=abc", nil)
@@ -318,7 +369,37 @@ func TestHandleFileComments_RoundFiltersReplies(t *testing.T) {
 	}
 }
 
-func TestHandleRounds_GitMode(t *testing.T) {
+// TestHandleRounds_GitMode_WithSnapshots pins the git-mode round timeline:
+// once git-mode sessions capture per-round snapshots, /api/rounds must surface
+// them just like files mode (the round endpoints are gated on RoundsSupported,
+// not Mode == "files").
+func TestHandleRounds_GitMode_WithSnapshots(t *testing.T) {
+	s, sess := newRoundsTestServer(t)
+	sess.Mode = "git"
+
+	req := httptest.NewRequest("GET", "/api/rounds", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status=%d", w.Code)
+	}
+	var resp struct {
+		Rounds []struct {
+			N int `json:"n"`
+		} `json:"rounds"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Rounds) != 2 {
+		t.Fatalf("git mode with snapshots must return 2 rounds, got %d", len(resp.Rounds))
+	}
+}
+
+// TestHandleRounds_GitMode_NoSnapshots verifies the empty-timeline case still
+// returns an empty rounds list (a git session that has not completed a round
+// has no snapshots).
+func TestHandleRounds_GitMode_NoSnapshots(t *testing.T) {
 	s, sess := newTestServer(t)
 	sess.Mode = "git"
 	req := httptest.NewRequest("GET", "/api/rounds", nil)
@@ -334,6 +415,31 @@ func TestHandleRounds_GitMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(resp.Rounds) != 0 {
-		t.Errorf("git mode must return empty rounds, got %d", len(resp.Rounds))
+		t.Errorf("git mode without snapshots must return empty rounds, got %d", len(resp.Rounds))
+	}
+}
+
+// TestHandleFileDiff_Round_GitMode verifies the per-round inter-round diff
+// endpoint works in git mode (R1->R2 hunks + previous_content).
+func TestHandleFileDiff_Round_GitMode(t *testing.T) {
+	s, sess := newRoundsTestServer(t)
+	sess.Mode = "git"
+
+	req := httptest.NewRequest("GET", "/api/file/diff?path=test.md&round=2", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+	if w.Code != 200 {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := resp["previous_content"].(string); got == "" {
+		t.Fatalf("previous_content empty for git R2: %v", resp)
+	}
+	hunks, _ := resp["hunks"].([]any)
+	if len(hunks) == 0 {
+		t.Fatalf("expected diff hunks for git R1->R2, got none")
 	}
 }

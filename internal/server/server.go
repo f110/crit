@@ -690,7 +690,7 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 	session := s.session.Load()
 	info := session.GetSessionInfoScoped(scope, commit)
 
-	if hasRound && session != nil && session.Mode == "files" {
+	if hasRound && session != nil && session.RoundsSupported() {
 		info.Files = filterFilesAtRound(session, info.Files, round)
 	}
 	type liveSessionResponse struct {
@@ -1171,7 +1171,7 @@ func (s *Server) handleRounds(w http.ResponseWriter, r *http.Request) {
 		"rounds":        []roundEntry{},
 	}
 
-	if session.Mode != "files" {
+	if !session.RoundsSupported() {
 		writeJSON(w, resp)
 		return
 	}
@@ -1702,7 +1702,7 @@ func serveFileAtRound(w http.ResponseWriter, r *http.Request, session *Session, 
 	if !hasRound {
 		return false
 	}
-	if session == nil || session.Mode != "files" {
+	if session == nil || !session.RoundsSupported() {
 		return false
 	}
 	session.RLock()
@@ -1769,6 +1769,11 @@ func (s *Server) handleFileDiff(w http.ResponseWriter, r *http.Request) {
 // when it has fully written the response (success or 400/404). Returns
 // served=false when the caller should fall through to the working-tree code
 // path (no round param, or git/range mode).
+//
+// The base of the diff is the immediately preceding round (round-1) by
+// default. An optional ?from=M selects an arbitrary earlier round M so the UI
+// can show a non-consecutive inter-round diff (#M -> #N). M must satisfy
+// 1 <= M < round.
 func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Session, path string) bool {
 	round, hasRound, valid := parseRoundParam(w, r)
 	if !valid {
@@ -1777,12 +1782,21 @@ func serveFileDiffAtRound(w http.ResponseWriter, r *http.Request, session *Sessi
 	if !hasRound {
 		return false
 	}
-	if session == nil || session.Mode != "files" {
+	if session == nil || !session.RoundsSupported() {
 		return false
+	}
+	baseRound := round - 1
+	if fromStr := r.URL.Query().Get("from"); fromStr != "" {
+		n, err := strconv.Atoi(fromStr)
+		if err != nil || n < 1 || n >= round {
+			http.Error(w, "invalid from", http.StatusBadRequest)
+			return true
+		}
+		baseRound = n
 	}
 	session.RLock()
 	rs, ok := session.RoundSnapshotForFile(path, round)
-	prev, hasPrev := session.RoundSnapshotForFile(path, round-1)
+	prev, hasPrev := session.RoundSnapshotForFile(path, baseRound)
 	session.RUnlock()
 	if !ok {
 		http.Error(w, "file_not_in_round", http.StatusNotFound)
@@ -1828,7 +1842,7 @@ func (s *Server) handleFileComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		comments := s.session.Load().GetComments(path)
-		if hasRound && s.session.Load().Mode == "files" {
+		if hasRound && s.session.Load().RoundsSupported() {
 			comments = commentsAtOrBeforeRound(comments, round)
 		}
 		writeJSON(w, comments)
@@ -2270,7 +2284,7 @@ func (s *Server) handleReviewComments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		comments := s.session.Load().GetReviewComments()
-		if hasRound && s.session.Load().Mode == "files" {
+		if hasRound && s.session.Load().RoundsSupported() {
 			comments = commentsAtOrBeforeRound(comments, round)
 		}
 		writeJSON(w, comments)

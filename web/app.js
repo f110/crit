@@ -468,6 +468,42 @@
   let commitList = [];
   let diffActive = false; // rendered diff view toggle for file mode
 
+  // Round picker (git/files mode) — Gerrit-style "Base ▾ → Round ▾" selector.
+  // selectedRound is the "to" (target) round being viewed; null means "Latest"
+  // (the normal vs-base / working-tree view, no ?round= param). It scopes every
+  // session/file/comments fetch via &round=N. roundFrom is the diff base (the
+  // "from" side): null means the #1 baseline (from=1; shown as "#1" in the base
+  // dropdown, since R1 IS the baseline — nothing precedes it). A number M pins
+  // an arbitrary earlier round so the diff shows #M -> #N.
+  let selectedRound = null;
+  let roundFrom = null;
+  let roundsList = [];   // [{ n, additions, deletions, comment_count, captured_at }]
+
+  // effectiveRoundFrom resolves the diff base for the current target. Returns
+  // null when there is no diff base: Latest (selectedRound null) or the #1
+  // baseline (nothing precedes it). Otherwise the pinned roundFrom, or 1 (the
+  // #1 baseline) when unpinned.
+  function effectiveRoundFrom() {
+    if (selectedRound === null || selectedRound <= 1) return null;
+    return roundFrom !== null ? roundFrom : 1;
+  }
+
+  // roundQueryParam returns the '&round=N' suffix (the target round) for the
+  // session/file/comments fetches, or '' for the Latest view. Read directly in
+  // the fetch builders (mirrors how diffCommit is read from closure scope).
+  function roundQueryParam() {
+    return selectedRound === null ? '' : '&round=' + enc(String(selectedRound));
+  }
+
+  // roundFromQueryParam returns the '&from=M' suffix for the diff fetch. The
+  // base defaults to the R1 baseline (from=1), so — unlike the server's own
+  // default (round-1) — we always send it whenever a diff base exists.
+  function roundFromQueryParam() {
+    const f = effectiveRoundFrom();
+    if (f === null || selectedRound === null || f < 1 || f >= selectedRound) return '';
+    return '&from=' + enc(String(f));
+  }
+
   let filePickerReady = false;  // set true once /api/files/list is confirmed working
   let userActedThisRound = false; // tracks if user made any comment/resolve/edit action this round
 
@@ -634,7 +670,7 @@
   async function loadSingleFile(fi, scope) {
     // Orphaned files have no content or diff — only fetch comments
     if (fi.orphaned) {
-      const comments = await fetch('/api/file/comments?path=' + enc(fi.path))
+      const comments = await fetch('/api/file/comments?path=' + enc(fi.path) + roundQueryParam())
         .then(function(r) { return r.ok ? r.json() : []; })
         .catch(function() { return []; });
       return {
@@ -671,9 +707,13 @@
     if (ignoreWhitespace && !storyNeedsRawDiff()) {
       diffUrl += '&w=1';
     }
+    const roundParam = roundQueryParam();
+    // Diff also carries &from=M for arbitrary #M -> #N ranges; session/file/
+    // comments only care about the target round.
+    diffUrl += roundParam + roundFromQueryParam();
     const [fileRes, commentsRes, diffRes] = await Promise.all([
-      fetch('/api/file?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
-      fetch('/api/file/comments?path=' + enc(fi.path)).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
+      fetch('/api/file?path=' + enc(fi.path) + roundParam).then(function(r) { return r.ok ? r.json() : { content: '' }; }).catch(function() { return { content: '' }; }),
+      fetch('/api/file/comments?path=' + enc(fi.path) + roundParam).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; }),
       fetch(diffUrl).then(function(r) { return r.ok ? r.json() : { hunks: [] }; }).catch(function() { return { hunks: [] }; }),
     ]);
     const content = Object.prototype.hasOwnProperty.call(diffRes, 'content')
@@ -1131,6 +1171,8 @@
     // Story layer (opt-in). No-op when session.story is absent.
     applyStoryPresence();
     updateDiffModeToggle();
+    // Round time-machine selector (fire-and-forget; no-op without >=2 rounds).
+    fetchRounds();
   }
 
   // Show/hide the Toggle Diff button and Split/Unified toggle in file mode
@@ -7758,6 +7800,241 @@
     }
   }
 
+  // ===== Round time-machine picker =====
+  // Fetches the round timeline (/api/rounds) and renders the header selector.
+  // Only meaningful in git/files mode with at least two rounds of snapshots.
+  async function fetchRounds() {
+    if (!session || (session.mode !== 'git' && session.mode !== 'files')) {
+      roundsList = [];
+      renderRoundPicker();
+      return;
+    }
+    try {
+      const res = await fetch('/api/rounds');
+      if (!res.ok) { roundsList = []; renderRoundPicker(); return; }
+      const data = await res.json();
+      roundsList = Array.isArray(data.rounds) ? data.rounds : [];
+      // A round we were viewing may have vanished (shouldn't normally happen,
+      // but guards against stale selection after a session reset).
+      const has = function(n) { return roundsList.some(function(r) { return r.n === n; }); };
+      if (selectedRound !== null && !has(selectedRound)) { selectedRound = null; roundFrom = null; }
+      if (roundFrom !== null && (!has(roundFrom) || selectedRound === null || roundFrom >= selectedRound)) {
+        roundFrom = null;
+      }
+    } catch {
+      roundsList = [];
+    }
+    renderRoundPicker();
+  }
+
+  function maxRound() {
+    return roundsList.length ? roundsList[roundsList.length - 1].n : null;
+  }
+
+  function roundByN(n) {
+    for (let i = 0; i < roundsList.length; i++) {
+      if (roundsList[i].n === n) return roundsList[i];
+    }
+    return null;
+  }
+
+  // Speech-balloon glyph for the per-round comment count (aria-hidden — the
+  // count text carries the meaning, and the parent span has a title).
+  const ROUND_COMMENT_ICON = '<svg class="round-row-comment-icon" width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M2.5 2h11A1.5 1.5 0 0 1 15 3.5v7A1.5 1.5 0 0 1 13.5 12H8l-3.7 2.64A.5.5 0 0 1 3.5 14.2V12H2.5A1.5 1.5 0 0 1 1 10.5v-7A1.5 1.5 0 0 1 2.5 2Z"/></svg>';
+
+  // Short date for a round row, e.g. "Jul 16". Empty on parse failure.
+  function fmtRoundDate(s) {
+    if (!s) return '';
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+
+  // Right-aligned meta group (comment badge · stats · date) shared by both menus.
+  function roundRowMeta(r) {
+    let html = '<span class="round-row-meta">';
+    if (r.comment_count > 0) {
+      html += '<span class="round-row-comments" title="' + r.comment_count + ' comment' +
+        (r.comment_count === 1 ? '' : 's') + '">' + ROUND_COMMENT_ICON + r.comment_count + '</span>';
+    }
+    if (r.n <= 1) {
+      html += '<span class="round-row-sub">baseline</span>';
+    } else {
+      html += '<span class="round-row-stats"><span class="round-row-add">+' + (r.additions || 0) +
+        '</span> <span class="round-row-del">−' + (r.deletions || 0) + '</span></span>';
+    }
+    const date = fmtRoundDate(r.captured_at);
+    if (date) html += '<span class="round-row-date">' + date + '</span>';
+    return html + '</span>';
+  }
+
+  function roundRow(dataAttr, val, active, main, meta) {
+    return '<div class="round-row' + (active ? ' active' : '') + '" ' + dataAttr + '="' + val +
+      '" role="option" tabindex="0" aria-selected="' + active + '">' +
+      '<span class="round-row-main">' + main + '</span>' + meta + '</div>';
+  }
+
+  function renderRoundPicker() {
+    const picker = document.getElementById('roundPicker');
+    if (!picker) return;
+    // Need at least two rounds (#1 baseline + one agent round) for a diff.
+    if (roundsList.length < 2) {
+      picker.style.display = 'none';
+      closeRoundMenus();
+      return;
+    }
+    picker.style.display = '';
+
+    const baseDisabled = selectedRound === null || selectedRound <= 1;
+
+    // --- Target (right) label + menu: Latest, then #max … #1 ---
+    const toLabel = document.getElementById('roundToLabel');
+    if (toLabel) toLabel.textContent = selectedRound === null ? 'Latest' : '#' + selectedRound;
+    const toMenu = document.getElementById('roundToMenu');
+    if (toMenu) {
+      let html = roundRow('data-round', '', selectedRound === null, 'Latest',
+        '<span class="round-row-meta"><span class="round-row-sub">working tree</span></span>') +
+        '<div class="round-dd-separator"></div>';
+      // #1 is the baseline (no earlier round to diff against), so it can't be a
+      // target — it appears only as the "#1" base in the left dropdown.
+      for (let i = roundsList.length - 1; i >= 0; i--) {
+        const r = roundsList[i];
+        if (r.n <= 1) continue;
+        html += roundRow('data-round', r.n, selectedRound === r.n, '#' + r.n, roundRowMeta(r));
+      }
+      toMenu.innerHTML = html;
+    }
+
+    // --- Base (left) label + menu: #1 (baseline), then #2 … #(to-1) ---
+    // The baseline snapshot IS round #1, so it's presented as a selectable "#1"
+    // (not "Base"). roundFrom === null still means it internally (from=1).
+    const baseBtn = document.getElementById('roundBaseBtn');
+    const baseLabel = document.getElementById('roundBaseLabel');
+    if (baseLabel) baseLabel.textContent = baseDisabled ? 'Base' : (roundFrom === null ? '#1' : '#' + roundFrom);
+    if (baseBtn) {
+      baseBtn.classList.toggle('disabled', baseDisabled);
+      baseBtn.setAttribute('aria-disabled', baseDisabled ? 'true' : 'false');
+    }
+    const baseMenu = document.getElementById('roundBaseMenu');
+    if (baseMenu) {
+      const r1 = roundByN(1);
+      const baseSub = '<span class="round-row-meta"><span class="round-row-sub">baseline</span>' +
+        (r1 && fmtRoundDate(r1.captured_at) ? '<span class="round-row-date">' + fmtRoundDate(r1.captured_at) + '</span>' : '') +
+        '</span>';
+      let html = roundRow('data-base', '', roundFrom === null, '#1', baseSub);
+      const top = (selectedRound || maxRound()) - 1;
+      for (let m = 2; m <= top; m++) {
+        const r = roundByN(m);
+        if (!r) continue;
+        html += roundRow('data-base', m, roundFrom === m, '#' + m, roundRowMeta(r));
+      }
+      baseMenu.innerHTML = html;
+    }
+  }
+
+  // Apply a selection mutation: close menus, re-render, and reload the view only
+  // when the (to, from) pair actually changed.
+  function commitRoundSelection(prevTo, prevFrom) {
+    closeRoundMenus();
+    renderRoundPicker();
+    if (selectedRound !== prevTo || roundFrom !== prevFrom) reloadForScope();
+  }
+
+  // Right dropdown: pick the target round. null = Latest. Drop a pinned base
+  // that would no longer sit strictly below the new target.
+  function selectTargetRound(n) {
+    const pt = selectedRound, pf = roundFrom;
+    selectedRound = n;
+    if (n === null || (roundFrom !== null && roundFrom >= n)) roundFrom = null;
+    commitRoundSelection(pt, pf);
+  }
+
+  // Left dropdown: pick the diff base. null = Base (R1). Only meaningful with a
+  // concrete target (#2 or higher) and a base strictly below it.
+  function selectBaseRound(m) {
+    if (selectedRound === null || selectedRound <= 1) return;
+    if (m !== null && m >= selectedRound) return;
+    const pt = selectedRound, pf = roundFrom;
+    roundFrom = m;
+    commitRoundSelection(pt, pf);
+  }
+
+  function closeRoundMenus() {
+    const baseDd = document.getElementById('roundBaseDd');
+    const toDd = document.getElementById('roundToDd');
+    const baseBtn = document.getElementById('roundBaseBtn');
+    const toBtn = document.getElementById('roundToBtn');
+    if (baseDd) baseDd.classList.remove('open');
+    if (toDd) toDd.classList.remove('open');
+    if (baseBtn) baseBtn.setAttribute('aria-expanded', 'false');
+    if (toBtn) toBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  (function wireRoundPicker() {
+    const picker = document.getElementById('roundPicker');
+    if (!picker) return;
+    const baseDd = document.getElementById('roundBaseDd');
+    const baseBtn = document.getElementById('roundBaseBtn');
+    const baseMenu = document.getElementById('roundBaseMenu');
+    const toDd = document.getElementById('roundToDd');
+    const toBtn = document.getElementById('roundToBtn');
+    const toMenu = document.getElementById('roundToMenu');
+    if (!baseDd || !baseBtn || !baseMenu || !toDd || !toBtn || !toMenu) return;
+
+    function toggle(dd, btn, other, otherBtn) {
+      const open = !dd.classList.contains('open');
+      other.classList.remove('open');
+      otherBtn.setAttribute('aria-expanded', 'false');
+      dd.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    }
+    baseBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (baseBtn.classList.contains('disabled')) return;
+      toggle(baseDd, baseBtn, toDd, toBtn);
+    });
+    toBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      toggle(toDd, toBtn, baseDd, baseBtn);
+    });
+
+    function pickBase(item) {
+      const raw = item.dataset.base;
+      selectBaseRound(raw === '' ? null : parseInt(raw, 10));
+    }
+    function pickTo(item) {
+      const raw = item.dataset.round;
+      selectTargetRound(raw === '' ? null : parseInt(raw, 10));
+    }
+    function wireMenu(menu, pick) {
+      menu.addEventListener('click', function(e) {
+        const item = e.target.closest('.round-row');
+        if (!item) return;
+        e.stopPropagation();
+        pick(item);
+      });
+      menu.addEventListener('keydown', function(e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        const item = e.target.closest('.round-row');
+        if (!item) return;
+        e.preventDefault();
+        pick(item);
+      });
+    }
+    wireMenu(baseMenu, pickBase);
+    wireMenu(toMenu, pickTo);
+
+    document.addEventListener('click', function(e) {
+      if (!picker.contains(e.target)) closeRoundMenus();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && (baseDd.classList.contains('open') || toDd.classList.contains('open'))) {
+        closeRoundMenus();
+        e.stopImmediatePropagation();
+      }
+    });
+  })();
+
   function setUIState(state) {
     uiState = state;
     if (state === 'reviewing') {
@@ -7960,6 +8237,10 @@
 
         // Clear commit filter on round-complete
         clearCommitPins();
+        // Snap back to the Latest view on a new round so the refetch below
+        // pulls fresh working-tree data, not a stale past-round snapshot.
+        selectedRound = null;
+        roundFrom = null;
 
         // Re-fetch everything on file-changed (round complete)
         let sessionRes = await hydrateStoryIfMissing(await fetchWhenReady('/api/session?scope=' + enc(currentSessionFetchScope())));
@@ -8001,6 +8282,7 @@
 
         saveViewedState();
         updateHeaderRound();
+        fetchRounds();
         updateDiffModeToggle();
         renderFileTree();
         renderAllFilesKeepingPlace();
@@ -9445,7 +9727,7 @@
   let reloadInFlightKey = null;
   async function reloadForScope() {
     const diffFetchMode = ignoreWhitespace && !storyNeedsRawDiff() ? 'filtered' : 'raw';
-    const key = currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit + '\0' + diffFetchMode;
+    const key = currentSessionFetchScope() + '\0' + currentFileDataScope() + '\0' + diffCommit + '\0' + diffFetchMode + '\0' + selectedRound + '\0' + roundFrom;
     if (reloadInFlight && reloadInFlightKey === key) return reloadInFlight;
     if (reloadInFlight) {
       // Different inputs — chain after the in-flight reload finishes so we
@@ -9468,6 +9750,7 @@
 
         let sessionUrl = '/api/session?scope=' + enc(currentSessionFetchScope());
         if (diffCommit) sessionUrl += '&commit=' + enc(diffCommit);
+        sessionUrl += roundQueryParam();
         let sessionRes = await fetchWhenReady(sessionUrl);
         if (!storyHasContent(sessionRes.story) && storyHasContent(session && session.story)) {
           sessionRes.story = session.story;

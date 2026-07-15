@@ -261,14 +261,18 @@ func TestSession_CaptureRoundSnapshot_FilesMode(t *testing.T) {
 	}
 }
 
-func TestSession_CaptureRoundSnapshot_GitModeNoOp(t *testing.T) {
+func TestSession_CaptureRoundSnapshot_GitMode(t *testing.T) {
 	s := &Session{
 		Mode:  "git",
-		Files: []*FileEntry{{Path: "a.go", Content: "x"}},
+		Files: []*FileEntry{{Path: "a.go", Status: "modified", Content: "x"}},
 	}
 	s.captureRoundSnapshot(1)
-	if len(s.RoundSnapshots) != 0 {
-		t.Fatalf("git mode must not capture snapshots, got %+v", s.RoundSnapshots)
+	got, ok := s.RoundSnapshots["a.go"][1]
+	if !ok {
+		t.Fatalf("git mode should capture snapshots, got %+v", s.RoundSnapshots)
+	}
+	if got.Content != "x" {
+		t.Errorf("Content = %q", got.Content)
 	}
 }
 

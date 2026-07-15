@@ -621,8 +621,26 @@ func (s *Session) handleRoundCompleteGit() {
 			f.PreviousContent = f.Content
 		}
 	}
+	// INVARIANT: captureRoundSnapshot MUST run AFTER rereadFileContents(false).
+	// This is the MIRROR of handleRoundCompleteFiles: git mode's watcher
+	// (watchGit) never populates f.Content — it only fingerprints the working
+	// tree — so the agent's new bytes only reach memory via this reread.
+	// Capturing before the reread would record the *previous* round's content
+	// as R(N+1) and silently corrupt the timeline.
+	nextRound := s.ReviewRound + 1
 	s.rereadFileContents(false)
+	s.captureRoundSnapshot(nextRound)
+	sidecarPath := ReviewPathsFor(s.critJSONPath()).Snapshots
+	sf := SnapshotsFile{RoundSnapshots: CloneRoundSnapshots(s.RoundSnapshots)}
 	s.mu.Unlock()
+
+	// File I/O off the hot path. Drift between review.json and snapshots.json
+	// is benign (degrades to "no timeline available"). Round-completes are
+	// serialized upstream by the debounced handler, so the clone-under-lock /
+	// write-off-lock sequence cannot interleave with a second capture cycle.
+	if err := SaveSnapshotsFile(sidecarPath, sf); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: write snapshots sidecar: %v\n", err)
+	}
 
 	// Run LCS-based carry-forward with anchor verification for all file types.
 	s.carryForwardComments()

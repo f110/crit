@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
 // TestRoundSnapshots_Integration exercises the full files-mode round
@@ -92,6 +94,78 @@ func TestRoundSnapshots_Integration(t *testing.T) {
 	flat := strings.TrimSuffix(identity, "/") + ".json"
 	if _, err := os.Stat(flat); err == nil {
 		t.Errorf("unexpected legacy flat file at %s", flat)
+	}
+}
+
+// TestRoundSnapshots_GitMode_Integration exercises the git-mode round
+// timeline: R1 baseline at session construction, an agent edit written to
+// disk, and R2 capture via handleRoundCompleteGit.
+//
+// Git mode's ordering is the MIRROR of files mode: the git watcher
+// (watchGit) never populates f.Content — it only fingerprints the working
+// tree — so at round-complete time f.Content still holds the previous round's
+// bytes. R(N+1) must therefore be captured AFTER rereadFileContents pulls the
+// agent's new bytes from disk, not before (see the files-mode invariant in
+// watch.go for the opposite case).
+func TestRoundSnapshots_GitMode_Integration(t *testing.T) {
+	dir := initTestRepo(t)
+	r1Body := "package main\n\nfunc main() {}\n"
+	writeFile(t, filepath.Join(dir, "foo.go"), r1Body)
+	oldWd, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chdir(oldWd) })
+
+	s, err := NewGitSession(&vcs.GitVCS{}, nil)
+	if err != nil {
+		t.Fatalf("NewGitSession: %v", err)
+	}
+	if s.Mode != "git" {
+		t.Fatalf("expected git mode, got %q", s.Mode)
+	}
+	identity := filepath.Join(dir, ".crit")
+	s.ReviewFilePath = identity
+	s.captureBaselineAndPersist()
+
+	relPath := s.Files[0].Path
+	if _, ok := s.RoundSnapshots[relPath][1]; !ok {
+		t.Fatalf("R1 baseline missing after captureBaselineAndPersist: %+v", s.RoundSnapshots)
+	}
+
+	// Simulate an agent edit: write new content to DISK (git watcher does not
+	// update f.Content, so memory still holds R1 until the round-complete reread).
+	r2Body := "package main\n\nfunc main() { println(\"hi\") }\n"
+	writeFile(t, filepath.Join(dir, "foo.go"), r2Body)
+
+	s.handleRoundCompleteGit()
+
+	s.mu.RLock()
+	r1, hasR1 := s.RoundSnapshots[relPath][1]
+	r2, hasR2 := s.RoundSnapshots[relPath][2]
+	currentRound := s.ReviewRound
+	s.mu.RUnlock()
+	if !hasR1 || !hasR2 {
+		t.Fatalf("expected R1 and R2 snapshots, got %+v", s.RoundSnapshots)
+	}
+	if r1.Content != r1Body {
+		t.Errorf("R1 content = %q; want %q", r1.Content, r1Body)
+	}
+	if r2.Content != r2Body {
+		t.Errorf("R2 content = %q; want the agent's on-disk edit %q", r2.Content, r2Body)
+	}
+	if currentRound != 2 {
+		t.Errorf("ReviewRound = %d, want 2", currentRound)
+	}
+
+	// Sidecar should be on disk in the v4 folder layout.
+	paths := ReviewPathsFor(identity)
+	sidecar, err := loadSnapshotsFile(paths.Snapshots)
+	if err != nil {
+		t.Fatalf("loadSnapshotsFile: %v", err)
+	}
+	if _, ok := sidecar.RoundSnapshots[relPath][2]; !ok {
+		t.Fatalf("sidecar missing R2 snapshot: %+v", sidecar.RoundSnapshots)
 	}
 }
 

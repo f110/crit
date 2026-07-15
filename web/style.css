@@ -4884,6 +4884,112 @@ html[data-theme="light"] .toggle-btn.active {
   margin: 4px 6px;
 }
 
+/* Round picker (header) — Gerrit-style "Base ▾ → Round ▾" selector for
+   git/files-mode round snapshots. Two independent dropdowns choose the diff
+   base (from) and the target round (to). Reuses existing theme vars, so no new
+   CSS variables are introduced. */
+.round-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.round-picker-arrow {
+  font-size: 12px;
+  color: var(--crit-editor-fg-muted);
+  user-select: none;
+}
+.round-dd {
+  position: relative;
+  display: inline-flex;
+}
+.round-dd-btn {
+  cursor: pointer;
+  font-family: inherit;
+}
+.round-dd-btn.disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+.round-dd-prefix {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.round-dd-label {
+  font-variant-numeric: tabular-nums;
+}
+.round-dd-chevron {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.round-dd.open .round-dd-chevron { transform: rotate(180deg); }
+.round-dd-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--crit-bg-card);
+  border: 1px solid var(--crit-border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  z-index: 100;
+  padding: 4px;
+}
+.round-dd--to .round-dd-menu { left: auto; right: 0; }
+.round-dd.open .round-dd-menu { display: block; }
+.round-dd-separator {
+  height: 1px;
+  background: var(--crit-border);
+  margin: 4px 6px;
+}
+.round-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--crit-editor-fg);
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.round-row:hover { background: var(--crit-editor-bg-hover); }
+.round-row.active {
+  background: var(--crit-brand-subtle);
+  color: var(--crit-brand);
+  font-weight: 600;
+}
+.round-row-main {
+  font-family: var(--crit-font-mono);
+  flex-shrink: 0;
+}
+.round-row-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--crit-editor-fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+.round-row-sub { font-style: italic; }
+.round-row-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.round-row-comment-icon { opacity: 0.8; }
+.round-row-date { min-width: 3.5em; text-align: right; }
+.round-row-add { color: var(--crit-green); }
+.round-row-del { color: var(--crit-red); }
+
 /* Diff mode toggle in header (split/unified) */
 .diff-mode-toggle {
   display: inline-flex;

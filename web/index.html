@@ -96,6 +96,25 @@
       <button class="toggle-btn active" data-story-view="story" title="Show story view">Story</button>
       <button class="toggle-btn" data-story-view="diff" title="Show diff view">Diff</button>
     </div>
+    <div class="round-picker" id="roundPicker" style="display:none">
+      <div class="round-dd round-dd--base" id="roundBaseDd">
+        <button class="header-chip round-dd-btn" id="roundBaseBtn" aria-haspopup="listbox" aria-expanded="false" title="Base of the diff">
+          <span class="round-dd-prefix">Base</span>
+          <span class="round-dd-label" id="roundBaseLabel">Base</span>
+          <svg class="round-dd-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>
+        </button>
+        <div class="round-dd-menu" id="roundBaseMenu" role="listbox" aria-label="Diff base"></div>
+      </div>
+      <span class="round-picker-arrow" aria-hidden="true">→</span>
+      <div class="round-dd round-dd--to" id="roundToDd">
+        <button class="header-chip round-dd-btn" id="roundToBtn" aria-haspopup="listbox" aria-expanded="false" title="Round to view">
+          <span class="round-dd-prefix">Round</span>
+          <span class="round-dd-label" id="roundToLabel">Latest</span>
+          <svg class="round-dd-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.75 5 6.25 7.5 3.75"/></svg>
+        </button>
+        <div class="round-dd-menu" id="roundToMenu" role="listbox" aria-label="Round"></div>
+      </div>
+    </div>
     <button class="btn btn-sm" id="diffToggle" style="display:none">Toggle Diff</button>
     <div class="diff-mode-toggle" id="diffModeToggle" style="display:none">
       <button class="toggle-btn active" data-mode="split" title="Split diff">Split</button>
