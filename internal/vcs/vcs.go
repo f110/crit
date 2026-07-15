@@ -166,39 +166,33 @@ func DetectVCS(vcsOverride string) VCS {
 		return nil
 	}
 
-	// Auto-detect: check for .jj/ first since colocated JJ repos also have .git/.
-	if hasJJDir() {
-		if _, err := exec.LookPath("jj"); err == nil {
+	dir, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	for {
+		if info, err := os.Stat(filepath.Join(dir, ".jj")); err == nil && info.IsDir() {
 			return &JJVCS{}
 		}
-	}
-
-	// Check for .sl/ before git since Sapling repos on top of git have both.
-	if hasSLDir() {
-		if _, err := exec.LookPath("sl"); err == nil {
+		if info, err := os.Stat(filepath.Join(dir, ".sl")); err == nil && info.IsDir() {
 			return &SaplingVCS{}
 		}
-	}
-
-	if IsGitRepo() {
-		// Check if Sapling metadata exists under .git/sl — this means sl was used
-		// here but it's primarily a git repo. Hint but don't switch automatically.
-		if hasGitSLDir() {
-			fmt.Fprintf(os.Stderr, "Hint: Sapling detected. Use --vcs sl or set \"vcs\": \"sl\" in config to use Sapling.\n")
+		if info, err := os.Stat(filepath.Join(dir, ".git")); err == nil && info.IsDir() {
+			if info, err := os.Stat(filepath.Join(dir, ".git", "sl")); err == nil && info.IsDir() {
+				fmt.Fprintf(os.Stderr, "Hint: Sapling detected. Use --vcs sl or set \"vcs\": \"sl\" in config to use Sapling.\n")
+				return nil
+			}
+			return &GitVCS{}
 		}
-		return &GitVCS{}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 
 	return nil
-}
-
-// hasJJDir checks whether a .jj/ directory exists at or above the current directory.
-func hasJJDir() bool {
-	dir, err := os.Getwd()
-	if err != nil {
-		return false
-	}
-	return hasJJDirFrom(dir)
 }
 
 // hasJJDirFrom checks whether a .jj/ directory exists at or above the given directory.
@@ -214,15 +208,6 @@ func hasJJDirFrom(dir string) bool {
 		dir = parent
 	}
 	return false
-}
-
-// hasSLDir checks whether a .sl/ directory exists at or above the current directory.
-func hasSLDir() bool {
-	dir, err := os.Getwd()
-	if err != nil {
-		return false
-	}
-	return hasSLDirFrom(dir)
 }
 
 // hasSLDirFrom checks whether a .sl/ directory exists at or above the given directory.
