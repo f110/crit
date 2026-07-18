@@ -22,6 +22,9 @@ body {
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Disable JetBrains Mono programming ligatures (e.g. != rendering as ≠).
+     A code-review tool should show literal characters everywhere. */
+  font-variant-ligatures: none;
 }
 
 /* ===== Scrollbar ===== */
