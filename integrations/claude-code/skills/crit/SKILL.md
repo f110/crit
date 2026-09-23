@@ -1,7 +1,7 @@
 ---
 name: crit
 description: "Review code changes, a plan, a live page (running dev server), or a local HTML file with Crit inline comments and structured human feedback. Use only when the user explicitly invokes /crit or directly asks to use Crit; a generic review request does not count."
-allowed-tools: Bash(crit:*), Bash(command ls:*), Read, Edit, Glob
+allowed-tools: Bash(crit:*), Bash(command ls:*), Bash(jj log:*), Read, Edit, Glob
 argument-hint: "[file|url]"
 ---
 
@@ -22,8 +22,15 @@ crit $ARGUMENTS               # file, dir, URL, .html — CLI auto-detects mode
 crit --pr <num|url>            # GitHub PR (range mode)
 crit --mr <iid|url>            # GitLab MR (range mode)
 crit --range <base>..<head>    # commit range (range mode)
+crit --change <jj-change-id>   # one Jujutsu change (range mode, survives rewrites)
 crit                           # no args → branch diff
 ```
+
+Use `--change` when the user wants one commit of a Jujutsu stack reviewed on its
+own. `--range` pins base and head SHAs, so the moment you rewrite the commit to
+address a comment the review is keyed to commits that are no longer in the
+stack; `--change` is keyed to the change id, which does not move.
+
 If no arguments, check conversation context:
 
 1. A plan file was written earlier in this conversation → `crit <plan-file>`
@@ -84,6 +91,26 @@ For each unresolved comment:
 5. **Do not pass `--resolve`.** Resolving is the reviewer's call. Only add `--resolve` if the user explicitly asks.
 
 Editing the plan file triggers Crit's live reload — the user sees changes in the browser immediately.
+
+<important if="this is a change-id review — you launched it with --change, or the comments carry a focus_key of jjchange:…">
+The fix has to land **inside the change under review**, not in the working-copy commit. Check the change out first:
+
+```bash
+jj edit -r <change-id>    # then Edit the files
+```
+
+Editing while `@` sits on some other commit puts your fix in a different change, and the review will never show it.
+
+Rewriting the change moves its commit id and rebases every change above it. That is normal and crit follows it — do not try to preserve commit ids.
+
+A rename or signature change in a lower change can break callers in the changes above it, which are outside the diff you were shown. Check the descendants before you finish:
+
+```bash
+jj log -r '<change-id>:: ~ <change-id>'    # changes stacked above this one
+```
+
+Fix what you broke there, and say so in your reply — the reviewer did not see those files in this layer.
+</important>
 
 <important if="you are replying to multiple comments at once">
 Use `--json` for a single bulk call instead of one invocation per comment:
