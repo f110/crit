@@ -621,6 +621,16 @@ func (s *Session) handleRoundCompleteGit() {
 			f.PreviousContent = f.Content
 		}
 	}
+	s.mu.Unlock()
+
+	// Re-point a change-id focus at the commits backing it now. This is the
+	// same job rereadFileContents does below, for the case where the agent's
+	// edits landed in a rewritten commit instead of on disk, and it obeys the
+	// same invariant: it must precede captureRoundSnapshot. No-op for every
+	// other focus.
+	s.refreshChangeIDFocus()
+
+	s.mu.Lock()
 	// INVARIANT: captureRoundSnapshot MUST run AFTER rereadFileContents(false).
 	// This is the MIRROR of handleRoundCompleteFiles: git mode's watcher
 	// (watchGit) never populates f.Content — it only fingerprints the working

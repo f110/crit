@@ -311,7 +311,7 @@ func resolveFocusFromVCSChange(changeSpec string, v vcs.VCS, repoRoot string) (*
 		VCSChangeID: changeID,
 		BaseSHA:     base,
 		HeadSHA:     head,
-		Label:       changeFocusLabel(changeID, vcs.JJCommitSubject(repoRoot, head)),
+		Label:       session.ChangeFocusLabel(changeID, vcs.JJCommitSubject(repoRoot, head)),
 		DiffScope:   DiffScopeLayer,
 		IsStacked:   false,
 	}, nil
@@ -322,19 +322,6 @@ func vcsNameOrNone(v vcs.VCS) string {
 		return "none"
 	}
 	return v.Name()
-}
-
-// changeFocusLabel renders a change id the way jj's own log does: a short
-// prefix, then the commit subject when there is one.
-func changeFocusLabel(changeID, subject string) string {
-	short := changeID
-	if len(short) > 8 {
-		short = short[:8]
-	}
-	if subject == "" {
-		return short
-	}
-	return short + ": " + subject
 }
 
 func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
