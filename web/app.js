@@ -8284,6 +8284,12 @@
         updateHeaderRound();
         fetchRounds();
         updateDiffModeToggle();
+        // A change-id focus points at new commits every round, and the rewrite
+        // that produced them rebased every entry above it, so the cached stack
+        // is stale. Refetching also re-paints the chip from the fresh focus.
+        if (session.focus && session.focus.vcs_change_id) {
+          loadStackFromPicker();
+        }
         renderFileTree();
         renderAllFilesKeepingPlace();
         buildToc();
@@ -10575,6 +10581,10 @@
       focus.forge = 'gitlab';
     }
     if (entry.base_ref_name) focus.base_ref_name = entry.base_ref_name;
+    // A change id outlives the commits it points at, so a review entered this
+    // way stays on the same change when the agent rewrites it. Only jj entries
+    // carry one.
+    if (entry.change_id) focus.vcs_change_id = entry.change_id;
     if (!entry.pr_number && !entry.mr_number && entry.label) focus.label = entry.label;
     const defaultSHA = entry.default_sha || fallbackDefault;
     if (defaultSHA) focus.default_sha = defaultSHA;
@@ -10590,6 +10600,13 @@
   function chipLabelForFocus(focus) {
     if (!focus || focus.kind !== 'range') return '';
     if (Array.isArray(stackCache)) {
+      // Match on the change id first: after a rewrite the cached head_sha is
+      // stale until the next picker fetch, which would drop the chip back to
+      // a bare SHA for a change that is still perfectly identified.
+      const byChange = focus.vcs_change_id
+        ? stackCache.find(function(e) { return e.change_id === focus.vcs_change_id; })
+        : null;
+      if (byChange) return entryLabel(byChange, 24);
       const cur = stackCache.find(function(e) { return e.head_sha === focus.head_sha; });
       if (cur) return entryLabel(cur, 24);
     }

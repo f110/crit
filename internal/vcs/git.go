@@ -679,6 +679,31 @@ func ResolveCommitOID(v VCS, ref, dir string) (string, error) {
 
 // walkAncestors enumerates HEAD-first the recent ancestor SHAs that are
 // candidates for stack stops. Capped at maxDepth.
+// ChangeIDsByCommit maps commit id to VCS-native change id over the same topic
+// chain WalkAncestors walks, in a single command. Returns nil for backends
+// without a stable change id (git, Sapling), which is every caller's cue that
+// change-id focus is unavailable there.
+func ChangeIDsByCommit(vcs VCS, repoRoot string, maxDepth int) map[string]string {
+	if vcs == nil || vcs.Name() != "jj" {
+		return nil
+	}
+	out, err := JJCommandInDir(repoRoot, "log", "-r", JJTopicChainRevset(repoRoot, maxDepth), "--no-graph",
+		"-T", "commit_id ++ \" \" ++ change_id ++ \"\\n\"")
+	if err != nil {
+		return nil
+	}
+	lines := SplitNonEmpty(out)
+	ids := make(map[string]string, len(lines))
+	for _, line := range lines {
+		commit, change, ok := strings.Cut(strings.TrimSpace(line), " ")
+		if !ok {
+			continue
+		}
+		ids[commit] = change
+	}
+	return ids
+}
+
 func WalkAncestors(vcs VCS, repoRoot string, maxDepth int) ([]string, error) {
 	if vcs == nil {
 		return nil, nil

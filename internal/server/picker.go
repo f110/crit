@@ -26,6 +26,7 @@ type StackEntry struct {
 	PRNumber    int    `json:"pr_number,omitempty"`
 	MRNumber    int    `json:"mr_number,omitempty"`
 	HeadSHA     string `json:"head_sha"`
+	ChangeID    string `json:"change_id,omitempty"`
 	BaseSHA     string `json:"base_sha,omitempty"`
 	BaseRefName string `json:"base_ref_name,omitempty"`
 	DefaultSHA  string `json:"default_sha,omitempty"`
@@ -57,6 +58,8 @@ func detectStackForKind(v vcs.VCS, repoRoot string, openPRs []github.PRSummary, 
 
 	topicSHAs := vcs.TopicChainSHAs(v, repoRoot)
 	gateByTopic := v != nil && v.Name() == "git"
+	// One command for the whole chain rather than a lookup per entry.
+	changeIDs := vcs.ChangeIDsByCommit(v, repoRoot, maxDepth)
 
 	var branchEntries []StackEntry
 	var nakedEntries []StackEntry
@@ -68,6 +71,7 @@ func detectStackForKind(v vcs.VCS, repoRoot string, openPRs []github.PRSummary, 
 		if entry == nil {
 			continue
 		}
+		entry.ChangeID = changeIDs[sha]
 		if isBranch {
 			branchEntries = append(branchEntries, *entry)
 		} else {

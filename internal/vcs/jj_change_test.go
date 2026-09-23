@@ -170,6 +170,27 @@ func TestJJChangeParentCommit(t *testing.T) {
 	}
 }
 
+func TestChangeIDsByCommit(t *testing.T) {
+	dir := initTestJJStack(t)
+	ids := ChangeIDsByCommit(&JJVCS{}, dir, 20)
+
+	for _, rev := range []string{"@-", "@--"} {
+		commit := jjCommitIDAt(t, dir, rev)
+		want := jjChangeIDAt(t, dir, rev)
+		if got := ids[commit]; got != want {
+			t.Errorf("ChangeIDsByCommit[%s] (%s) = %q, want %q", commit, rev, got, want)
+		}
+	}
+}
+
+func TestChangeIDsByCommit_NilForBackendsWithoutChangeIDs(t *testing.T) {
+	for _, v := range []VCS{&GitVCS{}, &SaplingVCS{}, nil} {
+		if got := ChangeIDsByCommit(v, t.TempDir(), 20); got != nil {
+			t.Errorf("ChangeIDsByCommit(%T) = %v, want nil", v, got)
+		}
+	}
+}
+
 func TestJJChangeParentCommit_RejectsMerge(t *testing.T) {
 	dir := initTestJJStack(t)
 	// A change with two parents: new off both sides of the stack.
