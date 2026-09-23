@@ -380,8 +380,8 @@ func PreflightCheck(sc *DaemonCLIConfig) string {
 }
 
 // FocusKeyArgs returns the args slice used to key the daemon session for a
-// PR/range focus. PR-keyed daemons reuse the same review file across head
-// changes; range-keyed daemons are unique per (base, head) pair.
+// PR/range focus. PR-keyed and change-id-keyed daemons reuse the same review
+// file across head changes; range-keyed daemons are unique per (base, head) pair.
 //
 // DiffScope is NOT part of the key — the picker must let users toggle scopes
 // within a single session.
@@ -397,6 +397,9 @@ func FocusKeyArgs(sc *DaemonCLIConfig) []string {
 			return []string{session.MRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
 		}
 		return []string{session.PRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
+	}
+	if sc.Focus.VCSChangeID != "" {
+		return []string{session.VCSChangeFocusKey(sc.Focus.VCSChangeID)}
 	}
 	return []string{fmt.Sprintf("range:%s..%s", sc.Focus.BaseSHA, sc.Focus.HeadSHA)}
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/tomasz-tomczyk/crit/internal/daemon"
 	"github.com/tomasz-tomczyk/crit/internal/review"
+	"github.com/tomasz-tomczyk/crit/internal/session"
 	"github.com/tomasz-tomczyk/crit/internal/vcs"
 )
 
@@ -448,13 +449,7 @@ func ResolveCommentScope(override CommentFocusOverride, outputDir string) (Inher
 // must match either the running daemon's diff scope or the on-disk ActiveDiffScope.
 func resolveExplicitScope(daemon *Focus, outputDir string, want DiffScope, wantStr, errMsg string) (InheritedScope, error) {
 	if daemon != nil && daemon.Kind == FocusRange && daemon.DiffScope == want {
-		return InheritedScope{
-			HeadSHA:      daemon.HeadSHA,
-			BaseSHA:      daemon.BaseSHA,
-			Forge:        daemon.Forge,
-			ChangeNumber: daemon.ChangeNumber,
-			DiffScope:    wantStr,
-		}, nil
+		return session.InheritedScopeFrom(*daemon, wantStr), nil
 	}
 	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope == wantStr {
 		return InheritedScope{DiffScope: wantStr}, nil
@@ -467,13 +462,7 @@ func resolveExplicitScope(daemon *Focus, outputDir string, want DiffScope, wantS
 // InheritedScope when neither is available.
 func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 	if daemon != nil && daemon.Kind == FocusRange {
-		return InheritedScope{
-			HeadSHA:      daemon.HeadSHA,
-			BaseSHA:      daemon.BaseSHA,
-			Forge:        daemon.Forge,
-			ChangeNumber: daemon.ChangeNumber,
-			DiffScope:    string(daemon.DiffScope),
-		}
+		return session.InheritedScopeFrom(*daemon, string(daemon.DiffScope))
 	}
 	if cj, ok := loadCritJSONForOutputDir(outputDir); ok && cj.ActiveDiffScope != "" {
 		fmt.Fprintf(os.Stderr,
@@ -489,13 +478,7 @@ func resolveAutoScope(daemon *Focus, outputDir string) InheritedScope {
 // key (pr:N or mr:N); BaseSHA + HeadSHA preserve range identity as a fallback.
 func ResolvePullScope(cj *CritJSON) InheritedScope {
 	if focus := probeDaemonFocus(); focus != nil && focus.Kind == FocusRange {
-		return InheritedScope{
-			HeadSHA:      focus.HeadSHA,
-			BaseSHA:      focus.BaseSHA,
-			Forge:        focus.Forge,
-			ChangeNumber: focus.ChangeNumber,
-			DiffScope:    "layer",
-		}
+		return session.InheritedScopeFrom(*focus, "layer")
 	}
 	if cj != nil && cj.ActiveDiffScope != "" {
 		return InheritedScope{DiffScope: "layer"}

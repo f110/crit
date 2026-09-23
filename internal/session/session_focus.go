@@ -66,6 +66,13 @@ type Focus struct {
 	HeadRefName       string    `json:"head_ref_name,omitempty"`
 	DiffScope         DiffScope `json:"diff_scope,omitempty"`
 	IsStacked         bool      `json:"is_stacked,omitempty"`
+
+	// VCSChangeID identifies the range by a VCS-native identity that survives
+	// commit rewrites (today: a JJ change id). When set it, not BaseSHA/HeadSHA,
+	// is the focus identity — those two hold the commits backing the change
+	// right now and are re-resolved as the change is edited. Named for the
+	// concept rather than for JJ so a Gerrit Change-Id could reuse the field.
+	VCSChangeID string `json:"vcs_change_id,omitempty"`
 }
 
 // ReadOnly reports whether comments may be added/edited in this focus.
@@ -105,6 +112,7 @@ func (f Focus) PickerVisible() bool {
 //	pr:<project>#<num>             — URL-qualified GitHub PR
 //	mr:<num>                       — range focus with MR IID (checkout-scoped)
 //	mr:<project>#<num>             — URL-qualified GitLab MR
+//	jjchange:<change-id>           — range focus pinned to a JJ change
 //	range:<baseSHA>..<headSHA>     — range focus without PR number
 //	""                             — working-tree (and unknown)
 //
@@ -122,7 +130,18 @@ func focusKeyFor(f Focus) string {
 		// github or empty forge (legacy ChangeNumber without Forge) → pr:…
 		return PRFocusKey(f.ChangeNumber, f.RemoteBaseProject, f.RemoteHost)
 	}
+	if f.VCSChangeID != "" {
+		return VCSChangeFocusKey(f.VCSChangeID)
+	}
 	return fmt.Sprintf("range:%s..%s", f.BaseSHA, f.HeadSHA)
+}
+
+// VCSChangeFocusKey is the identity of a change-id-pinned review. Unlike the
+// range key it holds no commit ids, so rewriting the change — which moves
+// every commit id in and above it — keeps the same daemon session, the same
+// review file, and the same comment visibility.
+func VCSChangeFocusKey(changeID string) string {
+	return "jjchange:" + changeID
 }
 
 // PRFocusKey is the GitHub PR identity used for daemon session keys and
@@ -175,6 +194,25 @@ func visibleInFocusKey(c Comment, key string, f Focus) bool {
 	return c.DiffScope == ""
 }
 
+// InheritedScopeFrom projects a range Focus onto the metadata stamped on
+// comments authored outside the browser. It is the inverse of AsFocus, and
+// exists so the five CLI scope-resolution paths cannot drift apart: a Focus
+// field added without a matching line here is silently dropped from every
+// comment those paths stamp.
+//
+// diffScope is a parameter because callers either inherit the focus's own
+// scope or pin an explicit one from --scope.
+func InheritedScopeFrom(f Focus, diffScope string) InheritedScope {
+	return InheritedScope{
+		HeadSHA:      f.HeadSHA,
+		BaseSHA:      f.BaseSHA,
+		Forge:        f.Forge,
+		ChangeNumber: f.ChangeNumber,
+		VCSChangeID:  f.VCSChangeID,
+		DiffScope:    diffScope,
+	}
+}
+
 // AsFocus returns a synthetic Focus that produces the same stamping as this scope.
 func (s InheritedScope) AsFocus() Focus {
 	if s.DiffScope == "" {
@@ -186,6 +224,7 @@ func (s InheritedScope) AsFocus() Focus {
 		BaseSHA:      s.BaseSHA,
 		Forge:        s.Forge,
 		ChangeNumber: s.ChangeNumber,
+		VCSChangeID:  s.VCSChangeID,
 		DiffScope:    DiffScope(s.DiffScope),
 	}
 }

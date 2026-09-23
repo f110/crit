@@ -37,5 +37,8 @@ func FocusKeyArgs(sc *CLIReviewConfig) []string {
 		}
 		return []string{PRFocusKey(sc.Focus.ChangeNumber, sc.Focus.RemoteBaseProject, sc.Focus.RemoteHost)}
 	}
+	if sc.Focus.VCSChangeID != "" {
+		return []string{VCSChangeFocusKey(sc.Focus.VCSChangeID)}
+	}
 	return []string{fmt.Sprintf("range:%s..%s", sc.Focus.BaseSHA, sc.Focus.HeadSHA)}
 }

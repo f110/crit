@@ -641,6 +641,7 @@ func TestDaemonArgsFromCliArgs(t *testing.T) {
 		{"files", []string{"a.md", "b.md"}, []string{"--session-key", key, "--quiet", "a.md", "b.md"}},
 		{"pr", []string{"pr:42"}, []string{"--session-key", key, "--quiet", "--pr", "42"}},
 		{"range", []string{"range:abc..def"}, []string{"--session-key", key, "--quiet", "--range", "abc..def"}},
+		{"jj change", []string{"jjchange:knwmvumyyonz"}, []string{"--session-key", key, "--quiet", "--change", "knwmvumyyonz"}},
 		{"live", []string{"live", "http://localhost:3000"}, []string{"--session-key", key, "--quiet", "live", "http://localhost:3000"}},
 		{"preview", []string{"preview", "/tmp/x.html"}, []string{"--session-key", key, "--quiet", "preview", "/tmp/x.html"}},
 	}

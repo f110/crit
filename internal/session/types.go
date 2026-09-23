@@ -20,5 +20,6 @@ type InheritedScope struct {
 	BaseSHA      string
 	Forge        string
 	ChangeNumber int
+	VCSChangeID  string
 	DiffScope    string // "layer" | "full_stack" | ""
 }
