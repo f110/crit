@@ -2403,9 +2403,12 @@ func (s *Server) handleRoundComplete(w http.ResponseWriter, r *http.Request) {
 	}
 	sess := s.session.Load()
 	sess.RLock()
-	isRange := sess.Focus.Kind == FocusRange
+	// A range focus is pinned to fixed commits, so a new round would show the
+	// same diff. A change-id focus is the exception: the round is exactly when
+	// it re-resolves to the rewritten commits.
+	isPinnedRange := sess.Focus.Kind == FocusRange && sess.Focus.VCSChangeID == ""
 	sess.RUnlock()
-	if isRange {
+	if isPinnedRange {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		_ = json.NewEncoder(w).Encode(map[string]string{

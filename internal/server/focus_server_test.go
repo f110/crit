@@ -30,6 +30,29 @@ func TestHandleRoundComplete_RejectedInRange(t *testing.T) {
 	}
 }
 
+// TestHandleRoundComplete_AllowedForChangeIDFocus: the range-mode rejection is
+// about pinned commits, and a change-id focus is not pinned — the round is
+// exactly when it re-resolves onto the rewritten commits.
+func TestHandleRoundComplete_AllowedForChangeIDFocus(t *testing.T) {
+	s, sess := newTestServer(t)
+	sess.Focus = Focus{
+		Kind:        FocusRange,
+		VCSChangeID: "knwmvumyyonz",
+		BaseSHA:     "b",
+		HeadSHA:     "h",
+		DiffScope:   session.DiffScopeLayer,
+	}
+	s.StoreSessionForTest(sess)
+
+	req := httptest.NewRequest("POST", "/api/round-complete", nil)
+	w := httptest.NewRecorder()
+	s.ServeHTTP(w, req)
+
+	if w.Code != 200 {
+		t.Errorf("status = %d, want 200 (body: %s)", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleFocus_FullStackRejectedWithoutDefaultSHA(t *testing.T) {
 	s, _ := newTestServer(t)
 	body := `{"kind":"range","base_sha":"b","head_sha":"h","diff_scope":"full_stack"}`

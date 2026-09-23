@@ -41,7 +41,8 @@ crit/
 13. **Comment threading** — comments support nested replies and a `resolved` boolean. Review file schema nests replies inside each comment's `replies` array.
 14. **Centralized review storage** — `~/.crit/reviews/<key>.json` keyed by cwd + branch (git mode) or cwd + args (file mode)
 15. **VCS abstraction** — `vcs.go` defines a backend interface; `git_vcs.go`, `sapling.go`, and `jj.go` are the implementations. Auto-detected, overridable via `--vcs` flag or `vcs` config key. Subcommands not yet threaded through (see TODO at `main.go:1826`).
-16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR). Lives in `focus_*.go` and `/api/focus`.
+16. **Focus mode** — sub-views over the file list: file focus, range focus (`--range A..B`), stacked focus (range layer in a stacked PR), change focus (`--change <jj-change-id>`). Lives in `focus_*.go` and `/api/focus`.
+17. **Focus identity is not the focus SHAs** — a range focus is keyed by `range:<base>..<head>`, so rewriting those commits starts a new session with a new review file. `pr:N`, `mr:N`, and `jjchange:<id>` are keyed by an identity that outlives a rewrite, so session, review file, and comment visibility survive one. `--change` is the local-VCS member of that group: round-complete re-resolves the change id to the commits backing it now (`refreshChangeIDFocus` in `internal/session/`), and comments remap onto their new lines through the usual carry-forward. jj only — git and Sapling have no stable change id.
 
 <important if="you are writing a plan, design doc, or implementation proposal, or about to commit">
 Do not commit plan files to the repo — keep them as untracked local files (or in `/tmp`). This includes `*-plan.md`, `*-proposal.md`, and other AI-generated design docs. Repo history should contain implementation, not planning artifacts. Exception: test fixtures under `test/` that a test explicitly reads.
@@ -69,6 +70,7 @@ Subcommands are dispatched via `commandDispatch` in `main.go`. Anything not in t
 crit                          # Review git changes (starts daemon, blocks for feedback)
 crit <file|dir> [...]         # Review specific files or directories (falls through to runReview)
 crit review [...]             # Explicit review invocation (same as default)
+crit --change <jj-change-id>  # Review one jj change; stays on it when the change is rewritten
 crit live <url>               # Review a running web app in live mode (also: crit <url>)
 crit preview <file.html>      # Review a local HTML file in preview mode (also: crit <file.html>)
 crit stop [--all]             # Stop daemon for current directory; --all stops every daemon
