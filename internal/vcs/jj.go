@@ -532,6 +532,97 @@ func jjCommitIDForRevset(dir, revset string) (string, error) {
 	return strings.TrimSpace(ids[0]), nil
 }
 
+// jjCommitIDsForRevset returns every commit a revset resolves to. Unlike
+// jjCommitIDForRevset it does not collapse to the first match, so callers can
+// detect divergent change ids and multi-parent commits.
+func jjCommitIDsForRevset(dir, revset string) ([]string, error) {
+	out, err := JJCommandInDir(dir, "log", "-r", revset, "--no-graph", "-T", "commit_id ++ \"\\n\"")
+	if err != nil {
+		return nil, err
+	}
+	return SplitNonEmpty(out), nil
+}
+
+// jjChangeRevset wraps a change id in JJ's change_id() revset function. The
+// function form disambiguates against bookmark names, which a bare id does not.
+func jjChangeRevset(changeID string) string {
+	return fmt.Sprintf("change_id(%q)", strings.TrimSpace(changeID))
+}
+
+// jjCommitIDsForChange resolves a change id, retrying with the bare id so JJ
+// versions predating the change_id() revset function still work.
+func jjCommitIDsForChange(dir, changeID string) ([]string, error) {
+	ids, err := jjCommitIDsForRevset(dir, jjChangeRevset(changeID))
+	if err == nil {
+		return ids, nil
+	}
+	bare, bareErr := jjCommitIDsForRevset(dir, strings.TrimSpace(changeID))
+	if bareErr != nil {
+		return nil, err
+	}
+	return bare, nil
+}
+
+// ResolveJJChangeID returns the commit id currently backing a change id. The
+// change id survives rewrites that move the commit id, which is what makes it
+// usable as a stable review target. Accepts a unique prefix.
+//
+// Divergent change ids are rejected rather than resolved to an arbitrary
+// commit: reviewing one of several candidates silently is worse than failing.
+func ResolveJJChangeID(dir, changeID string) (string, error) {
+	changeID = strings.TrimSpace(changeID)
+	if changeID == "" {
+		return "", fmt.Errorf("empty JJ change id")
+	}
+	ids, err := jjCommitIDsForChange(dir, changeID)
+	if err != nil {
+		return "", fmt.Errorf("resolving JJ change %s: %w", changeID, err)
+	}
+	switch len(ids) {
+	case 0:
+		return "", fmt.Errorf("JJ change %s not found", changeID)
+	case 1:
+		return ids[0], nil
+	default:
+		return "", fmt.Errorf("JJ change %s is divergent (%d visible commits); resolve the divergence before reviewing it", changeID, len(ids))
+	}
+}
+
+// JJChangeIDForCommit returns the full change id backing a commit.
+func JJChangeIDForCommit(dir, commitID string) (string, error) {
+	rev, err := ResolveJJRevisionToCommitID(dir, commitID)
+	if err != nil {
+		return "", err
+	}
+	out, err := JJCommandInDir(dir, "log", "-r", jjCommitRevset(rev), "--no-graph", "-T", "change_id ++ \"\\n\"")
+	if err != nil {
+		return "", err
+	}
+	ids := SplitNonEmpty(out)
+	if len(ids) == 0 {
+		return "", fmt.Errorf("no change id for commit %s", commitID)
+	}
+	return strings.TrimSpace(ids[0]), nil
+}
+
+// JJChangeParentCommit returns the commit id of a change's single parent, for
+// use as the diff base of that change's layer. Merge commits are rejected
+// because a layer diff against two parents is undefined.
+func JJChangeParentCommit(dir, changeID string) (string, error) {
+	head, err := ResolveJJChangeID(dir, changeID)
+	if err != nil {
+		return "", err
+	}
+	parents, err := jjCommitIDsForRevset(dir, jjCommitRevset(head)+"-")
+	if err != nil {
+		return "", fmt.Errorf("resolving parent of JJ change %s: %w", changeID, err)
+	}
+	if len(parents) != 1 {
+		return "", fmt.Errorf("JJ change %s has %d parents; merge commits cannot be reviewed as a layer", changeID, len(parents))
+	}
+	return parents[0], nil
+}
+
 func JJMergeBase(dir, headRef, baseSHA string) (string, error) {
 	head, err := ResolveJJRevisionToCommitID(dir, headRef)
 	if err != nil {
