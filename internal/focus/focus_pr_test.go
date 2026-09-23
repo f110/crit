@@ -35,7 +35,7 @@ func TestResolveFocusFromPR(t *testing.T) {
 	}
 
 	// remoteFiles skips EnsureSHAFetched; this test wires PR hooks, not git fetch.
-	f, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "https://github.com/myorg/repo-b/pull/42"}, "", "", true, v, dir)
+	f, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "https://github.com/myorg/repo-b/pull/42"}, "", "", "", true, v, dir)
 	if err != nil {
 		t.Fatal(err)
 	}

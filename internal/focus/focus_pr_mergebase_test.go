@@ -45,7 +45,7 @@ func TestResolveFocusFromPR_UsesMergeBaseNotBaseTip(t *testing.T) {
 
 	// remoteFiles=true skips EnsureSHAFetched; all objects already exist locally,
 	// so the merge-base is computed against the real repo.
-	f, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "7"}, "", "", true, &vcs.GitVCS{}, dir)
+	f, err := ResolveFocus(ChangeSpec{Forge: "github", Value: "7"}, "", "", "", true, &vcs.GitVCS{}, dir)
 	if err != nil {
 		t.Fatalf("ResolveFocus: %v", err)
 	}

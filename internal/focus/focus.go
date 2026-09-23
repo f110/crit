@@ -130,17 +130,29 @@ type ChangeSpec struct {
 }
 
 // ResolveFocus turns CLI inputs into a *Focus, or nil for working-tree default.
-// A change request and an explicit range are mutually exclusive.
+// A change request, a VCS change id, and an explicit range are mutually
+// exclusive — each is a different way to name the same slot.
 //
 // remoteFiles=true skips local-fetch / object presence checks because file
 // content reads will go through the selected forge API instead of local git.
-// ResolveFocus parses a provider-neutral change spec, --range, and --scope.
-func ResolveFocus(change ChangeSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
+// ResolveFocus parses a provider-neutral change spec, --change, --range, and --scope.
+func ResolveFocus(change ChangeSpec, changeIDSpec, rangeSpec, scopeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {
 	if (change.Forge == "") != (change.Value == "") {
 		return nil, fmt.Errorf("change forge and value must be provided together")
 	}
 	if change.Value != "" && rangeSpec != "" {
 		return nil, fmt.Errorf("--pr or --mr and --range are mutually exclusive")
+	}
+	if changeIDSpec != "" {
+		if change.Value != "" {
+			return nil, fmt.Errorf("--change and --pr or --mr are mutually exclusive")
+		}
+		if rangeSpec != "" {
+			return nil, fmt.Errorf("--change and --range are mutually exclusive")
+		}
+		if remoteFiles {
+			return nil, fmt.Errorf("--remote cannot be used with --change: a VCS change id has no forge to read files from")
+		}
 	}
 	scope, err := parseScopeSpec(scopeSpec)
 	if err != nil {
@@ -149,15 +161,21 @@ func ResolveFocus(change ChangeSpec, rangeSpec, scopeSpec string, remoteFiles bo
 	if scopeSpec != "" && rangeSpec != "" {
 		fmt.Fprintln(os.Stderr, "Note: --scope is ignored with --range; pass an explicit base..head instead")
 	}
+	if scopeSpec != "" && changeIDSpec != "" {
+		fmt.Fprintln(os.Stderr, "Note: --scope is ignored with --change; a change is reviewed as its own layer")
+	}
 	switch change.Forge {
 	case "github":
 		return resolveFocusFromPR(change.Value, scope, remoteFiles, v, repoRoot)
 	case "gitlab":
 		return resolveFocusFromMR(change.Value, scope, remoteFiles, v, repoRoot)
 	case "":
-		// No change request; range or working-tree mode continues below.
+		// No change request; change id, range, or working-tree mode continues below.
 	default:
 		return nil, fmt.Errorf("unsupported change forge %q", change.Forge)
+	}
+	if changeIDSpec != "" {
+		return resolveFocusFromVCSChange(changeIDSpec, v, repoRoot)
 	}
 	if rangeSpec != "" {
 		return resolveFocusFromRange(rangeSpec, remoteFiles, v, repoRoot)
@@ -263,6 +281,60 @@ func resolveFocusFromChange(info ChangeResolveInfo, provider, labelKind string, 
 		focus.IsStacked = IsStackedPRHook != nil && IsStackedPRHook(info, v)
 	}
 	return focus, nil
+}
+
+// resolveFocusFromVCSChange builds a focus pinned to a JJ change id. Unlike a
+// range focus the SHAs here are not the identity — they are where the change
+// happens to sit right now, and the round-complete refresh re-resolves them.
+//
+// The spec is normalized to the full change id: a focus keyed by whatever
+// prefix the user typed would give `--change knwm` and `--change knwmvumy`
+// separate review files for the same change.
+func resolveFocusFromVCSChange(changeSpec string, v vcs.VCS, repoRoot string) (*Focus, error) {
+	if v == nil || v.Name() != "jj" {
+		return nil, fmt.Errorf("--change requires a Jujutsu repository (detected VCS: %s)", vcsNameOrNone(v))
+	}
+	head, err := vcs.ResolveJJChangeID(repoRoot, changeSpec)
+	if err != nil {
+		return nil, err
+	}
+	base, err := vcs.JJChangeParentCommit(repoRoot, changeSpec)
+	if err != nil {
+		return nil, err
+	}
+	changeID, err := vcs.JJChangeIDForCommit(repoRoot, head)
+	if err != nil {
+		return nil, err
+	}
+	return &Focus{
+		Kind:        FocusRange,
+		VCSChangeID: changeID,
+		BaseSHA:     base,
+		HeadSHA:     head,
+		Label:       changeFocusLabel(changeID, vcs.JJCommitSubject(repoRoot, head)),
+		DiffScope:   DiffScopeLayer,
+		IsStacked:   false,
+	}, nil
+}
+
+func vcsNameOrNone(v vcs.VCS) string {
+	if v == nil {
+		return "none"
+	}
+	return v.Name()
+}
+
+// changeFocusLabel renders a change id the way jj's own log does: a short
+// prefix, then the commit subject when there is one.
+func changeFocusLabel(changeID, subject string) string {
+	short := changeID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	if subject == "" {
+		return short
+	}
+	return short + ": " + subject
 }
 
 func resolveFocusFromRange(rangeSpec string, remoteFiles bool, v vcs.VCS, repoRoot string) (*Focus, error) {

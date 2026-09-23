@@ -75,6 +75,7 @@ type daemonFlagSet struct {
 	fileArgs                    []string
 	changeSpec                  string
 	changeForge                 string
+	changeIDSpec                string
 	rangeSpec                   string
 	scopeSpec                   string
 	remoteFiles                 bool
@@ -121,6 +122,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		changeSpec, changeForge = value, "gitlab"
 		return nil
 	})
+	changeIDSpec := fs.String("change", "", "Review one Jujutsu change by change id; survives rewrites of that change")
 	rangeSpec := fs.String("range", "", "Review a commit range, base..head (e.g. abc1234..def5678)")
 	scopeSpec := fs.String("scope", "", "Diff scope when reviewing a PR/MR: layer (default) or full-stack")
 	remoteFiles := fs.Bool("remote", false, "Read PR/MR file content through the selected forge API")
@@ -172,6 +174,7 @@ func parseDaemonFlags(args []string) daemonFlagSet {
 		fileArgs:                    fs.Args(),
 		changeSpec:                  changeSpec,
 		changeForge:                 changeForge,
+		changeIDSpec:                *changeIDSpec,
 		rangeSpec:                   *rangeSpec,
 		scopeSpec:                   *scopeSpec,
 		remoteFiles:                 *remoteFiles,
@@ -305,7 +308,7 @@ func ResolveDaemonCLIConfig(args []string) (*DaemonCLIConfig, error) { //nolint:
 	}
 
 	change := focus.ChangeSpec{Forge: sf.changeForge, Value: sf.changeSpec}
-	f, err := focus.ResolveFocus(change, sf.rangeSpec, sf.scopeSpec, sf.remoteFiles, v, repoRoot)
+	f, err := focus.ResolveFocus(change, sf.changeIDSpec, sf.rangeSpec, sf.scopeSpec, sf.remoteFiles, v, repoRoot)
 	if err != nil {
 		return nil, err
 	}

@@ -31,7 +31,7 @@ func TestResolveFocusFromMR(t *testing.T) {
 	}
 	IsStackedMRHook = func(ChangeResolveInfo, vcs.VCS) bool { return false }
 
-	f, err := ResolveFocus(ChangeSpec{Forge: "gitlab", Value: mrURL}, "", "", true, nil, "")
+	f, err := ResolveFocus(ChangeSpec{Forge: "gitlab", Value: mrURL}, "", "", "", true, nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}

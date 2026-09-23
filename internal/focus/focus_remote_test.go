@@ -36,7 +36,7 @@ func (f *fakeStackVCS) HasObject(_, _ string) bool {
 
 func TestResolveFocus_RangeRemoteSkipsLocalValidation(t *testing.T) {
 	v := &fakeStackVCS{name: "git", hasSeq: []bool{true, true}}
-	f, err := ResolveFocus(ChangeSpec{}, "abc..def", "", true, v, t.TempDir())
+	f, err := ResolveFocus(ChangeSpec{}, "", "abc..def", "", true, v, t.TempDir())
 	if err != nil {
 		t.Fatalf("expected --remote to skip local validation, got err: %v", err)
 	}
@@ -54,7 +54,7 @@ func TestResolveFocus_RangeRemoteSkipsLocalValidation(t *testing.T) {
 
 func TestResolveFocus_RangeNonRemoteEnforcesHasObject(t *testing.T) {
 	v := &fakeStackVCS{name: "git", hasSeq: nil}
-	_, err := ResolveFocus(ChangeSpec{}, "abc..def", "", false, v, t.TempDir())
+	_, err := ResolveFocus(ChangeSpec{}, "", "abc..def", "", false, v, t.TempDir())
 	if err == nil {
 		t.Fatal("expected error from missing local SHA")
 	}
